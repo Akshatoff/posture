@@ -1,113 +1,660 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Posture Detection with MoveNet</title>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-  <style>
-    video, canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-    }
-    #status {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      font-size: 24px;
-      color: white;
-      background: rgba(0, 0, 0, 0.6);
-      padding: 10px;
-      border-radius: 10px;
-    }
-  </style>
-</head>
-<body>
-  <video id="video" width="640" height="480" autoplay muted></video>
-  <canvas id="canvas" width="640" height="480"></canvas>
-  <div id="status">Loading...</div>
-
-  <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const statusEl = document.getElementById('status');
-
-    async function setupCamera() {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480 },
-        audio: false
-      });
-      video.srcObject = stream;
-      return new Promise((resolve) => {
-        video.onloadedmetadata = () => {
-          resolve(video);
-        };
-      });
-    }
-
-    function getAngle(p1, p2) {
-      return Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI);
-    }
-
-    function detectPosture(keypoints) {
-  const leftShoulder = keypoints.find(k => k.name === 'left_shoulder');
-  const rightShoulder = keypoints.find(k => k.name === 'right_shoulder');
-  const leftHip = keypoints.find(k => k.name === 'left_hip');
-  const rightHip = keypoints.find(k => k.name === 'right_hip');
-
-  if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return 'Unable to detect';
-
-  const shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2;
-  const hipCenterX = (leftHip.x + rightHip.x) / 2;
-
-  const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2;
-  const hipCenterY = (leftHip.y + rightHip.y) / 2;
-
-  const xDiff = shoulderCenterX - hipCenterX;
-  const yDiff = shoulderCenterY - hipCenterY;
-
-  if (xDiff > 20) return 'Leaning Left';
-  if (xDiff < -20) return 'Leaning Right';
-
-  if (yDiff < 100) return 'Slouching';
-
-  return 'Good Posture';
-}
-
-
-    async function runPostureDetection() {
-      const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
-
-      async function detect() {
-        const poses = await detector.estimatePoses(video);
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        if (poses.length > 0) {
-          const keypoints = poses[0].keypoints;
-          for (let kp of keypoints) {
-            if (kp.score > 0.4) {
-              ctx.beginPath();
-              ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
-              ctx.fillStyle = "red";
-              ctx.fill();
-            }
-          }
-
-          const posture = detectPosture(keypoints);
-          statusEl.textContent = posture;
-        }
-
-        requestAnimationFrame(detect);
+  <head>
+    <meta charset="UTF-8" />
+    <title>Posture Detection with MoveNet</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        background-color: #f0f0f0;
       }
 
-      detect();
-    }
+      .container {
+        position: relative;
+        width: 640px;
+        height: 480px;
+      }
 
-    setupCamera().then(() => {
-      video.play();
-      runPostureDetection();
-    });
-  </script>
-</body>
+      video,
+      canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      #status {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        font-size: 24px;
+        color: white;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 10px;
+        border-radius: 10px;
+      }
+
+      #confidence {
+        position: absolute;
+        top: 60px;
+        left: 10px;
+        font-size: 16px;
+        color: white;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 5px 10px;
+        border-radius: 10px;
+      }
+
+      #debug {
+        position: absolute;
+        bottom: 60px;
+        left: 10px;
+        font-size: 12px;
+        color: white;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 5px 10px;
+        border-radius: 10px;
+        max-width: 300px;
+      }
+
+      .calibrate-btn {
+        position: absolute;
+        bottom: 10px;
+        left: 10px;
+        padding: 10px 20px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+
+      .calibrate-btn:hover {
+        background-color: #45a049;
+      }
+
+      #reference-values {
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        font-size: 12px;
+        color: white;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 5px 10px;
+        border-radius: 10px;
+        max-width: 300px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <video id="video" autoplay muted></video>
+      <canvas id="canvas"></canvas>
+      <div id="status">Loading...</div>
+      <div id="confidence"></div>
+      <div id="debug"></div>
+      <div id="reference-values"></div>
+      <button id="calibrate" class="calibrate-btn">
+        Calibrate Good Posture
+      </button>
+    </div>
+
+    <script>
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("canvas");
+      const ctx = canvas.getContext("2d");
+      const statusEl = document.getElementById("status");
+      const confidenceEl = document.getElementById("confidence");
+      const debugEl = document.getElementById("debug");
+      const refValuesEl = document.getElementById("reference-values");
+      const calibrateBtn = document.getElementById("calibrate");
+
+      // Default reference values
+      let referencePosture = {
+        shoulderHipXDiff: 0,
+        shoulderHipYDiff: 0,
+        shoulderAngle: 0,
+        upperBodyAngle: 0,
+        noseShoulderDistX: 0,
+        noseShoulderDistY: 0,
+        noseShoulderDist: 0,
+        noseToCenterY: 0, // New: vertical distance from nose to shoulder center
+      };
+
+      // Tolerance levels for posture detection
+      const LEAN_TOLERANCE = 15;
+      const SLOUCH_TOLERANCE = 15; // For the traditional shoulder-hip metric
+      const NOSE_SLOUCH_TOLERANCE = -70; // New: for nose-based slouch detection
+      const ANGLE_TOLERANCE = 10;
+      const FORWARD_HEAD_TOLERANCE = 15;
+
+      // Minimum confidence score to use a keypoint
+      const MIN_SCORE = 0.3;
+
+      // Debug mode
+      const DEBUG = true;
+
+      async function setupCamera() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 640, height: 480 },
+          audio: false,
+        });
+        video.srcObject = stream;
+
+        return new Promise((resolve) => {
+          video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            resolve(video);
+          };
+        });
+      }
+
+      function calculateCenterPoint(points) {
+        const validPoints = points.filter((p) => p && p.score > MIN_SCORE);
+
+        if (validPoints.length === 0) return null;
+
+        const sum = validPoints.reduce(
+          (acc, p) => {
+            return { x: acc.x + p.x, y: acc.y + p.y };
+          },
+          { x: 0, y: 0 }
+        );
+
+        return {
+          x: sum.x / validPoints.length,
+          y: sum.y / validPoints.length,
+          confidence: validPoints.length / points.length,
+        };
+      }
+
+      function getPostureMetrics(keypoints) {
+        // Extract key body points
+        const nose = keypoints.find((k) => k.name === "nose");
+        const leftShoulder = keypoints.find((k) => k.name === "left_shoulder");
+        const rightShoulder = keypoints.find(
+          (k) => k.name === "right_shoulder"
+        );
+        const leftHip = keypoints.find((k) => k.name === "left_hip");
+        const rightHip = keypoints.find((k) => k.name === "right_hip");
+        const leftEar = keypoints.find((k) => k.name === "left_ear");
+        const rightEar = keypoints.find((k) => k.name === "right_ear");
+
+        // Calculate center points for more robust detection
+        const shoulderCenter = calculateCenterPoint([
+          leftShoulder,
+          rightShoulder,
+        ]);
+        const hipCenter = calculateCenterPoint([leftHip, rightHip]);
+        const earCenter = calculateCenterPoint([leftEar, rightEar]);
+
+        // Initialize metrics with default values
+        const metrics = {
+          shoulderHipXDiff: 0,
+          shoulderHipYDiff: 0,
+          shoulderAngle: 0,
+          upperBodyAngle: 0,
+          noseShoulderDistX: 0,
+          noseShoulderDistY: 0,
+          noseShoulderDist: 0,
+          noseToCenterY: 0, // New: vertical distance from nose to shoulder center
+          confidence: 0,
+        };
+
+        // Update confidence score
+        let confidencePoints = 0;
+        let totalPoints = 0;
+
+        // Check shoulder alignment if both shoulders are detected
+        if (
+          leftShoulder &&
+          rightShoulder &&
+          leftShoulder.score > MIN_SCORE &&
+          rightShoulder.score > MIN_SCORE
+        ) {
+          const dx = rightShoulder.x - leftShoulder.x;
+          const dy = rightShoulder.y - leftShoulder.y;
+          metrics.shoulderAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+          confidencePoints += 2;
+          totalPoints += 2;
+        }
+
+        // Calculate shoulder-hip metrics if we have the centers
+        if (shoulderCenter && hipCenter) {
+          metrics.shoulderHipXDiff = shoulderCenter.x - hipCenter.x;
+          metrics.shoulderHipYDiff = hipCenter.y - shoulderCenter.y;
+
+          // Calculate upper body angle
+          const dx = shoulderCenter.x - hipCenter.x;
+          const dy = shoulderCenter.y - hipCenter.y;
+          metrics.upperBodyAngle = Math.atan2(dx, -dy) * (180 / Math.PI);
+
+          confidencePoints +=
+            (2 * (shoulderCenter.confidence + hipCenter.confidence)) / 2;
+          totalPoints += 2;
+        }
+
+        // Add nose-based metrics if nose and shoulders are detected
+        if (nose && nose.score > MIN_SCORE && shoulderCenter) {
+          // Calculate distance components from nose to shoulder line
+          metrics.noseShoulderDistX = nose.x - shoulderCenter.x;
+          metrics.noseShoulderDistY = nose.y - shoulderCenter.y;
+          metrics.noseShoulderDist = Math.sqrt(
+            metrics.noseShoulderDistX * metrics.noseShoulderDistX +
+              metrics.noseShoulderDistY * metrics.noseShoulderDistY
+          );
+
+          // Add nose-to-shoulder vertical distance (positive means nose is below shoulder center)
+          metrics.noseToCenterY = nose.y - shoulderCenter.y;
+
+          confidencePoints += 1;
+          totalPoints += 1;
+        }
+
+        // Calculate overall confidence
+        metrics.confidence =
+          totalPoints > 0 ? confidencePoints / totalPoints : 0;
+
+        return metrics;
+      }
+
+      function detectPosture(metrics) {
+        if (metrics.confidence < 0.3) {
+          return {
+            status: "Low Confidence Detection",
+            confidence: metrics.confidence,
+            debug: metrics,
+          };
+        }
+
+        // Calculate differences from reference posture
+        const xDiffFromRef =
+          metrics.shoulderHipXDiff - referencePosture.shoulderHipXDiff;
+        const yDiffFromRef =
+          metrics.shoulderHipYDiff - referencePosture.shoulderHipYDiff;
+        const angleDiffFromRef =
+          metrics.upperBodyAngle - referencePosture.upperBodyAngle;
+        const noseXDiffFromRef =
+          metrics.noseShoulderDistX - referencePosture.noseShoulderDistX;
+
+        // New: Calculate vertical nose position difference
+        const noseYDiffFromRef =
+          metrics.noseToCenterY - referencePosture.noseToCenterY;
+
+        // Default to good posture
+        let posture = "Good Posture";
+        let confidence = metrics.confidence;
+
+        // Debug information
+        let debugInfo = {
+          xDiff: xDiffFromRef.toFixed(2),
+          yDiff: yDiffFromRef.toFixed(2),
+          angleDiff: angleDiffFromRef.toFixed(2),
+          noseXDiff: noseXDiffFromRef.toFixed(2),
+          noseYDiff: noseYDiffFromRef.toFixed(2),
+          metrics: metrics,
+          reference: referencePosture,
+        };
+
+        // New priority-based posture detection
+
+        // Check for slouching - New logic using nose position
+        // When slouching, nose gets closer to shoulder center (moves down and forward)
+        if (noseYDiffFromRef > NOSE_SLOUCH_TOLERANCE) {
+          posture = "Slouching (Head Down)";
+        }
+        // Traditional slouch detection (backup)
+        else if (yDiffFromRef < -SLOUCH_TOLERANCE) {
+          posture = "Slouching (Shoulders Down)";
+        }
+        // Check for leaning
+        else if (Math.abs(xDiffFromRef) > LEAN_TOLERANCE) {
+          posture = xDiffFromRef > 0 ? "Leaning Left" : "Leaning Right";
+        }
+        // Check for upper body angle
+        else if (Math.abs(angleDiffFromRef) > ANGLE_TOLERANCE) {
+          posture =
+            angleDiffFromRef > 0 ? "Torso Leaning Left" : "Torso Leaning Right";
+        }
+        // Check for forward head posture
+        else if (noseXDiffFromRef > FORWARD_HEAD_TOLERANCE) {
+          posture = "Forward Head Posture";
+        }
+
+        return {
+          status: posture,
+          confidence: confidence,
+          debug: debugInfo,
+        };
+      }
+
+      function drawSkeleton(keypoints) {
+        // Define connections between keypoints
+        const connections = [
+          ["nose", "left_eye"],
+          ["nose", "right_eye"],
+          ["left_eye", "left_ear"],
+          ["right_eye", "right_ear"],
+          ["left_shoulder", "right_shoulder"],
+          ["left_shoulder", "left_hip"],
+          ["right_shoulder", "right_hip"],
+          ["left_hip", "right_hip"],
+          ["left_shoulder", "left_elbow"],
+          ["left_elbow", "left_wrist"],
+          ["right_shoulder", "right_elbow"],
+          ["right_elbow", "right_wrist"],
+          ["left_hip", "left_knee"],
+          ["left_knee", "left_ankle"],
+          ["right_hip", "right_knee"],
+          ["right_knee", "right_ankle"],
+        ];
+
+        // Draw connections
+        ctx.lineWidth = 2;
+        connections.forEach(([p1Name, p2Name]) => {
+          const p1 = keypoints.find((k) => k.name === p1Name);
+          const p2 = keypoints.find((k) => k.name === p2Name);
+
+          if (p1 && p2 && p1.score > MIN_SCORE && p2.score > MIN_SCORE) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.strokeStyle = "#00ff00";
+            ctx.stroke();
+          }
+        });
+
+        // Draw keypoints
+        keypoints.forEach((kp) => {
+          if (kp.score > MIN_SCORE) {
+            // Color based on confidence
+            const colorIntensity = Math.floor(255 * Math.min(1, kp.score));
+
+            ctx.beginPath();
+            ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = `rgb(${
+              255 - colorIntensity
+            }, ${colorIntensity}, 0)`;
+            ctx.fill();
+          }
+        });
+
+        // Draw important reference lines
+        const leftShoulder = keypoints.find((k) => k.name === "left_shoulder");
+        const rightShoulder = keypoints.find(
+          (k) => k.name === "right_shoulder"
+        );
+        const leftHip = keypoints.find((k) => k.name === "left_hip");
+        const rightHip = keypoints.find((k) => k.name === "right_hip");
+        const nose = keypoints.find((k) => k.name === "nose");
+
+        // Calculate shoulder and hip centers
+        const shoulderCenter = calculateCenterPoint([
+          leftShoulder,
+          rightShoulder,
+        ]);
+        const hipCenter = calculateCenterPoint([leftHip, rightHip]);
+
+        // Draw vertical reference line
+        if (shoulderCenter && hipCenter) {
+          ctx.beginPath();
+          ctx.moveTo(canvas.width / 2, 0);
+          ctx.lineTo(canvas.width / 2, canvas.height);
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+          ctx.setLineDash([5, 5]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Draw line connecting shoulder center to hip center
+          ctx.beginPath();
+          ctx.moveTo(shoulderCenter.x, shoulderCenter.y);
+          ctx.lineTo(hipCenter.x, hipCenter.y);
+          ctx.strokeStyle = "rgba(255, 255, 0, 0.8)";
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.lineWidth = 2;
+
+          // Draw shoulder center (blue dot)
+          ctx.beginPath();
+          ctx.arc(shoulderCenter.x, shoulderCenter.y, 8, 0, 2 * Math.PI);
+          ctx.fillStyle = "rgba(0, 255, 255, 0.8)";
+          ctx.fill();
+
+          // Draw hip center
+          ctx.beginPath();
+          ctx.arc(hipCenter.x, hipCenter.y, 8, 0, 2 * Math.PI);
+          ctx.fillStyle = "rgba(255, 0, 255, 0.8)";
+          ctx.fill();
+
+          // Draw vertical line from shoulder
+          ctx.beginPath();
+          ctx.moveTo(shoulderCenter.x, shoulderCenter.y);
+          ctx.lineTo(shoulderCenter.x, hipCenter.y);
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+          ctx.setLineDash([3, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+
+          // Draw nose reference lines
+          if (nose && nose.score > MIN_SCORE) {
+            // Draw line from nose to shoulder center (for slouch detection)
+            ctx.beginPath();
+            ctx.moveTo(nose.x, nose.y);
+            ctx.lineTo(shoulderCenter.x, shoulderCenter.y);
+            ctx.strokeStyle = "rgba(255, 165, 0, 0.8)";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+            ctx.stroke();
+
+            // Draw horizontal line from nose to vertical shoulder line (for forward head)
+            ctx.beginPath();
+            ctx.moveTo(nose.x, nose.y);
+            ctx.lineTo(shoulderCenter.x, nose.y);
+            ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
+            ctx.setLineDash([2, 2]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw ideal nose position (based on reference)
+            if (referencePosture.noseShoulderDistX) {
+              const idealNoseX =
+                shoulderCenter.x + referencePosture.noseShoulderDistX;
+              const idealNoseY =
+                shoulderCenter.y + referencePosture.noseToCenterY;
+
+              ctx.beginPath();
+              ctx.arc(idealNoseX, idealNoseY, 6, 0, 2 * Math.PI);
+              ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
+              ctx.stroke();
+            }
+          }
+        }
+      }
+
+      async function runPostureDetection() {
+        const detectorConfig = {
+          modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+        };
+
+        const detector = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          detectorConfig
+        );
+
+        statusEl.textContent = "Calibrate your posture and click the button";
+
+        async function detect() {
+          const poses = await detector.estimatePoses(video);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          if (poses.length > 0) {
+            const keypoints = poses[0].keypoints;
+
+            // Draw skeleton
+            drawSkeleton(keypoints);
+
+            const metrics = getPostureMetrics(keypoints);
+            const result = detectPosture(metrics);
+
+            // Set color based on posture
+            if (result.status === "Good Posture") {
+              statusEl.style.backgroundColor = "rgba(0, 128, 0, 0.6)";
+            } else if (result.status === "Low Confidence Detection") {
+              statusEl.style.backgroundColor = "rgba(128, 128, 128, 0.6)";
+            } else {
+              statusEl.style.backgroundColor = "rgba(255, 0, 0, 0.6)";
+            }
+
+            statusEl.textContent = result.status;
+
+            // Update confidence display
+            const confidencePercent = Math.round(result.confidence * 100);
+            confidenceEl.textContent = `Confidence: ${confidencePercent}%`;
+
+            // Update confidence indicator color
+            if (confidencePercent < 40) {
+              confidenceEl.style.backgroundColor = "rgba(255, 0, 0, 0.6)";
+            } else if (confidencePercent < 70) {
+              confidenceEl.style.backgroundColor = "rgba(255, 165, 0, 0.6)";
+            } else {
+              confidenceEl.style.backgroundColor = "rgba(0, 128, 0, 0.6)";
+            }
+
+            // Debug info
+            if (DEBUG) {
+              debugEl.textContent = `Nose-Y: ${result.debug.noseYDiff} | Lean: ${result.debug.xDiff} | FwdHead: ${result.debug.noseXDiff}`;
+            } else {
+              debugEl.textContent = "";
+            }
+          } else {
+            statusEl.textContent = "No person detected";
+            statusEl.style.backgroundColor = "rgba(128, 128, 128, 0.6)";
+            confidenceEl.textContent = "Confidence: 0%";
+            confidenceEl.style.backgroundColor = "rgba(255, 0, 0, 0.6)";
+            debugEl.textContent = "";
+          }
+
+          requestAnimationFrame(detect);
+        }
+
+        detect();
+      }
+
+      // Calibration function
+      async function calibrate() {
+        statusEl.textContent = "Calibrating...";
+
+        const detectorConfig = {
+          modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
+        };
+
+        const detector = await poseDetection.createDetector(
+          poseDetection.SupportedModels.MoveNet,
+          detectorConfig
+        );
+
+        // Use multiple samples for more reliable calibration
+        let attempts = 0;
+        let successfulReads = 0;
+        let accumulatedMetrics = null;
+
+        const takeCalibrationSample = async () => {
+          attempts++;
+
+          // Estimate poses
+          const poses = await detector.estimatePoses(video);
+
+          if (poses.length > 0) {
+            const keypoints = poses[0].keypoints;
+            const metrics = getPostureMetrics(keypoints);
+
+            if (metrics.confidence > 0.5) {
+              // Higher threshold for calibration
+              successfulReads++;
+
+              // Initialize or add to accumulated metrics
+              if (!accumulatedMetrics) {
+                accumulatedMetrics = { ...metrics };
+              } else {
+                // Average the values
+                Object.keys(metrics).forEach((key) => {
+                  if (key !== "confidence") {
+                    accumulatedMetrics[key] =
+                      (accumulatedMetrics[key] * (successfulReads - 1) +
+                        metrics[key]) /
+                      successfulReads;
+                  }
+                });
+              }
+
+              // Update UI during calibration
+              statusEl.textContent = `Calibrating... (${successfulReads}/3)`;
+
+              // Continue sampling if needed
+              if (successfulReads < 3 && attempts < 10) {
+                setTimeout(takeCalibrationSample, 300);
+                return;
+              }
+
+              // Complete calibration
+              referencePosture = accumulatedMetrics;
+              statusEl.textContent =
+                "Calibration successful! This is your reference posture.";
+              statusEl.style.backgroundColor = "rgba(0, 128, 0, 0.6)";
+
+              // Display reference values for debugging
+              if (DEBUG) {
+                refValuesEl.textContent = `Reference: NoseY=${referencePosture.noseToCenterY.toFixed(
+                  1
+                )}, NoseX=${referencePosture.noseShoulderDistX.toFixed(1)}`;
+              }
+
+              // Hide status after 2 seconds
+              setTimeout(() => {
+                statusEl.textContent = "Good Posture";
+              }, 2000);
+            } else {
+              // Try again if low confidence
+              if (attempts < 10) {
+                setTimeout(takeCalibrationSample, 300);
+              } else {
+                statusEl.textContent =
+                  "Calibration failed. Low confidence. Please try again.";
+                statusEl.style.backgroundColor = "rgba(255, 0, 0, 0.6)";
+              }
+            }
+          } else {
+            // Try again if no person detected
+            if (attempts < 10) {
+              setTimeout(takeCalibrationSample, 300);
+            } else {
+              statusEl.textContent = "No person detected. Please try again.";
+              statusEl.style.backgroundColor = "rgba(255, 0, 0, 0.6)";
+            }
+          }
+        };
+
+        // Start calibration sampling
+        takeCalibrationSample();
+      }
+
+      calibrateBtn.addEventListener("click", calibrate);
+
+      setupCamera().then(() => {
+        video.play();
+        runPostureDetection();
+      });
+    </script>
+  </body>
 </html>
