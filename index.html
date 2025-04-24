@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Posture Detection with MoveNet</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+  <style>
+    video, canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    #status {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      font-size: 24px;
+      color: white;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 10px;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <video id="video" width="640" height="480" autoplay muted></video>
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <div id="status">Loading...</div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
+
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480 },
+        audio: false
+      });
+      video.srcObject = stream;
+      return new Promise((resolve) => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    function getAngle(p1, p2) {
+      return Math.atan2(p2.y - p1.y, p2.x - p1.x) * (180 / Math.PI);
+    }
+
+    function detectPosture(keypoints) {
+  const leftShoulder = keypoints.find(k => k.name === 'left_shoulder');
+  const rightShoulder = keypoints.find(k => k.name === 'right_shoulder');
+  const leftHip = keypoints.find(k => k.name === 'left_hip');
+  const rightHip = keypoints.find(k => k.name === 'right_hip');
+
+  if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return 'Unable to detect';
+
+  const shoulderCenterX = (leftShoulder.x + rightShoulder.x) / 2;
+  const hipCenterX = (leftHip.x + rightHip.x) / 2;
+
+  const shoulderCenterY = (leftShoulder.y + rightShoulder.y) / 2;
+  const hipCenterY = (leftHip.y + rightHip.y) / 2;
+
+  const xDiff = shoulderCenterX - hipCenterX;
+  const yDiff = shoulderCenterY - hipCenterY;
+
+  if (xDiff > 20) return 'Leaning Left';
+  if (xDiff < -20) return 'Leaning Right';
+
+  if (yDiff < 100) return 'Slouching';
+
+  return 'Good Posture';
+}
+
+
+    async function runPostureDetection() {
+      const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet);
+
+      async function detect() {
+        const poses = await detector.estimatePoses(video);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if (poses.length > 0) {
+          const keypoints = poses[0].keypoints;
+          for (let kp of keypoints) {
+            if (kp.score > 0.4) {
+              ctx.beginPath();
+              ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+              ctx.fillStyle = "red";
+              ctx.fill();
+            }
+          }
+
+          const posture = detectPosture(keypoints);
+          statusEl.textContent = posture;
+        }
+
+        requestAnimationFrame(detect);
+      }
+
+      detect();
+    }
+
+    setupCamera().then(() => {
+      video.play();
+      runPostureDetection();
+    });
+  </script>
+</body>
+</html>
